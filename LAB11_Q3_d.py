@@ -1,0 +1,231 @@
+# LAB 11 QUESTION 3 part d
+
+"""
+Strter code for protein folding
+Author: Nicolas Grisuard, based on a script by Paul Kushner
+"""
+
+from random import random, randrange
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import rc
+
+
+def calc_energy(monomer_coords, monomer_array):
+    """ Compute energy of tertiary structure of protein """
+    energy = 0.0
+
+    # compute energy due to all adjacencies (incl. directly bonded monomers)
+    for i in range(N):
+        for nghbr in [[-1, 0], [1, 0], [0, -1], [0, 1]]:  # 4 neighbours
+            nghbr_monomer = monomer_array[monomer_coords[i, 0] + nghbr[0],
+                                          monomer_coords[i, 1]+nghbr[1]]
+
+            if nghbr_monomer == 1:  # check neighbour is not empty
+                energy += eps
+
+    # divide by 2 to correct for double-counting
+    energy = .5*energy
+
+    # correct energy to not count directly bonded monomer neighbours
+    energy -= (N-1)*eps
+
+    return energy
+
+
+def dist(position1, position2):
+    """ Compute distance """
+    return ((position1[0]-position2[0])**2+(position1[1]-position2[1])**2)**.5
+
+
+font = {'family': 'DejaVu Sans', 'size': 14}  # adjust fonts
+rc('font', **font)
+dpi = 150
+
+
+eps = -5.0  # interaction energy
+N = 30  # length of protein
+n = 500000 * 20  # 500000 * 20  # int(1e5)  # number of Monte Carlo steps
+
+energy_array = np.zeros(n)  # initialize array to hold energy
+
+
+# define temperatures for simulated annealing
+
+T_f = 0.5  # the final temperature
+T_steps = 20  # the number of different temperatures we want to hit inbetween the initial and final temperature
+T_i = (T_f + (T_steps) - 1)  # the initial temperature
+T_array = np.zeros(n)  # initialize array to hold temperatures (the same length as the number of steps of the monte carlo simulation)
+
+individual = []  # will use this later for the plotting: it holds each temperature (no repitition of the same temperature)
+
+for step in range(T_steps):
+    T_array[(step) * n // T_steps: ((step) + 1) * n // T_steps] = \
+        (T_i - T_f) * (1 - (step / 2) / (T_steps - 1)) + T_f - 9.5
+    individual.append((T_i - T_f) * (1 - (step / 2) / (T_steps - 1)) + T_f - 9.5)
+
+# for the ith monte carlo step use the ith time from the T_array
+
+
+# initialize arrays to store protein information
+# 1st column is x coordinates, 2nd column is y coordinates, of all N monomers
+monomer_coords = np.zeros((N, 2), dtype='int')
+
+# initialize position of polymer as horizontal line in middle of domain
+monomer_coords[:, 0] = range(N//2, 3*N//2)
+monomer_coords[:, 1] = N
+
+# 2D array representing lattice,
+# equal to 0 when a lattice point is empty,
+# and equal to 1 when there is a monomer at the lattice point
+monomer_array = np.zeros((2*N+1, 2*N+1), dtype='int')
+
+# fill lattice array
+for i in range(N):
+    monomer_array[monomer_coords[i, 0], monomer_coords[i, 1]] = 1
+
+# calculate energy of initial protein structure
+energy = calc_energy(monomer_coords, monomer_array)
+
+# do Monte Carlo procedure to find optimal protein structure
+for j in range(n):
+
+    
+    energy_array[j] = energy  # define energy at the jth position in the energy array
+    T = T_array[j]  # pick the temperature to be used for the jth iteration
+
+    # move protein back to centre of array
+    shift_x = int(np.mean(monomer_coords[:, 0])-N)
+    shift_y = int(np.mean(monomer_coords[:, 1])-N)
+    monomer_coords[:, 0] -= shift_x
+    monomer_coords[:, 1] -= shift_y
+    monomer_array = np.roll(monomer_array, -shift_x, axis=0)
+    monomer_array = np.roll(monomer_array, -shift_y, axis=1)
+
+    # pick random monomer
+    i = randrange(N)
+    cur_monomer_pos = monomer_coords[i, :]
+
+    # pick random diagonal neighbour for monomer
+    direction = randrange(4)
+
+    if direction == 0:
+        neighbour = np.array([-1, -1])  # left/down
+    elif direction == 1:
+        neighbour = np.array([-1, 1])  # left/up
+    elif direction == 2:
+        neighbour = np.array([1, 1])  # right/up
+    elif direction == 3:
+        neighbour = np.array([1, -1])  # right/down
+
+    new_monomer_pos = cur_monomer_pos + neighbour
+
+    # check if neighbour lattice point is empty
+    if monomer_array[new_monomer_pos[0], new_monomer_pos[1]] == 0:
+        # check if it is possible to move monomer to new position without
+        # stretching chain
+        distance_okay = False
+        if i == 0:
+            if dist(new_monomer_pos, monomer_coords[i+1, :]) < 1.1:
+                distance_okay = True
+        elif i == N-1:
+            if dist(new_monomer_pos, monomer_coords[i-1, :]) < 1.1:
+                distance_okay = True
+        else:
+            if dist(new_monomer_pos, monomer_coords[i-1, :]) < 1.1 \
+               and dist(new_monomer_pos, monomer_coords[i+1, :]) < 1.1:
+                distance_okay = True
+
+        if distance_okay:
+            # calculate new energy
+            new_monomer_coords = np.copy(monomer_coords)
+            new_monomer_coords[i, :] = new_monomer_pos
+
+            new_monomer_array = np.copy(monomer_array)
+            new_monomer_array[cur_monomer_pos[0], cur_monomer_pos[1]] = 0
+            new_monomer_array[new_monomer_pos[0], new_monomer_pos[1]] = 1
+
+            new_energy = calc_energy(new_monomer_coords, new_monomer_array)
+
+            if random() < np.exp(-(new_energy-energy)/T):
+                # make switch
+                energy = new_energy
+                monomer_coords = np.copy(new_monomer_coords)
+                monomer_array = np.copy(new_monomer_array)
+
+# want to collect energy values for each temperature
+# and the standard deviation
+
+total = []  # this list is multidimensional and stores the energy values as seperate lists for each temperature
+for l in range(len(individual)):
+    ind = individual[l]
+    energylist = []
+    for j in range(len(energy_array)):
+        energy = energy_array[j]
+        T = T_array[j]
+        if ind == T:
+            energylist.append(energy)
+    total.append(energylist)
+
+t_mean_energy = []  # this is a list of the average energies at each temperature
+for i in range(len(total)):
+    mean_energy = 0
+    count = 0
+    for j in range(len(total[i])):
+        mean_energy += total[i][j]
+        count += 1
+    t_mean_energy.append(mean_energy/count)
+#print('t_mean_energy', t_mean_energy)
+
+t_sd = []  # this is a list of the standard deviations for energy at each temperature
+for i in range(len(total)):
+    mean_energy = t_mean_energy[i]
+    sd = 0
+    count = 0
+    for j in range(len(total[i])):
+        sd += (mean_energy - total[i][j])**2
+        count += 1
+    t_sd.append(np.sqrt(sd / count))
+#print('t_sd', t_sd)
+
+# plot the energy as a function of temperature
+# each energy value is the average of the values produced in the monte carlo simulation
+# error bars indicate the standard deviation ie how much each energy value produced in the simulation deviated from the average energy at that temperature
+plt.figure()
+plt.title('Energy Versus Temperature')
+plt.plot(individual, t_mean_energy)
+plt.xlabel('Temperature')
+plt.ylabel('Energy')
+plt.errorbar(individual, t_mean_energy, yerr=t_sd)
+plt.show()
+
+plt.figure()
+plt.title('$T$ = {0:.1f}, $N$ = {1:d}'.format(T, N))
+plt.plot(energy_array)
+plt.xlabel('MC step')
+plt.ylabel('Energy')
+plt.grid()
+plt.tight_layout()
+plt.savefig('energy_vs_step_T{0:d}_N{1:d}_n{2:d}.pdf'.format(int(10*T), N, n),
+            dpi=dpi)
+
+plt.figure()
+plt.plot(monomer_coords[:, 0], monomer_coords[:, 1], '-k')  # plot bonds
+plt.title('$T$ = {0:.1f}, Energy = {1:.1f}'.format(T, energy))
+# plot monomers
+for i in range(N):
+    plt.plot(monomer_coords[i, 0], monomer_coords[i, 1], '.r', markersize=15)
+plt.xlim([N/3.0, 5.0*N/3.0])
+plt.ylim([N/3.0, 5.0*N/3.0])
+plt.axis('equal')
+# plt.xticks([])  # we just want to see the shape
+# plt.yticks([])
+plt.tight_layout()
+plt.savefig('final_protein_T{0:d}_N{1:d}_n{2:d}.pdf'.format(int(10*T), N, n),
+            dpi=dpi)
+
+print('Energy averaged over last half of simulations is: {0:.2f}'
+      .format(np.mean(energy_array[n//2:])))
+
+plt.show()
+
